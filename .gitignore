@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+db.sqlite3
+private_media/
+staticfiles/
+.dart_tool/
+build/
+android/local.properties
+*.jks
+*firebase-admin*.json
+dart_defines.json

@@ -1,0 +1,25 @@
+CROPCARE AI - FLUTTER + DJANGO PROJECT
+
+Your supplied crop_model_33.keras and labels.txt are included.
+You do not need to train the model again.
+
+WINDOWS QUICK START
+1. Install Python 3.12 (64-bit), Flutter and Android Studio.
+2. Extract this folder to C:\CropCare_AI.
+3. Run scripts\setup_backend.bat, then scripts\start_backend.bat.
+4. Run scripts\setup_mobile.bat.
+5. Start an Android emulator. Open Command Prompt inside mobile and run:
+   flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api
+6. Register in the app, save your farm location in Profile, and enable
+   phone reminders in Alerts.
+7. Keep scripts\start_worker.bat running for proactive server notifications.
+
+For a physical phone, use your computer's Wi-Fi IP instead of 10.0.2.2.
+See docs\SETUP_WINDOWS.md for full instructions and troubleshooting.
+
+Nearby alerts while the app is closed require your own Firebase setup.
+See docs\NOTIFICATIONS.md. In-app nearby alerts work without Firebase.
+
+23 backend tests passed and the real model loaded successfully.
+Flutter APK compilation was blocked in this environment; no APK is included.
+See docs\VERIFICATION.md for the exact verification limits.

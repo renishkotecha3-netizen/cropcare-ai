@@ -1,0 +1,8 @@
+{
+  "API_BASE_URL": "http://10.0.2.2:8000/api",
+  "ENABLE_PUSH": "false",
+  "FIREBASE_API_KEY": "",
+  "FIREBASE_APP_ID": "",
+  "FIREBASE_SENDER_ID": "",
+  "FIREBASE_PROJECT_ID": ""
+}
