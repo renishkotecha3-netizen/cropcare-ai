@@ -4,8 +4,6 @@ Pillow==12.3.0
 requests==2.34.2
 python-dotenv==1.2.3
 numpy==2.5.3
-tensorflow-cpu==2.21.0; sys_platform == "linux"
-tensorflow==2.20.0; sys_platform != "linux"
+tensorflow==2.20.0
 keras==3.15.1
 gunicorn==23.0.0
-# Optional remote push: pip install -r requirements-push.txt
