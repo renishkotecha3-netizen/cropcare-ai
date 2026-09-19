@@ -12,7 +12,15 @@ if not SECRET_KEY:
         SECRET_KEY = 'development-only-do-not-deploy-cropcare'
     else:
         raise ImproperlyConfigured('Set DJANGO_SECRET_KEY in backend/.env; see .env.example.')
-ALLOWED_HOSTS = [h.strip() for h in os.getenv('DJANGO_ALLOWED_HOSTS', 'https://cropcare-aix.onrender.com').split(',') if h.strip()]
+ALLOWED_HOSTS = os.getenv(
+    "ALLOWED_HOSTS",
+    "localhost,127.0.0.1"
+).split(",")
+
+CSRF_TRUSTED_ORIGINS = os.getenv(
+    "CSRF_TRUSTED_ORIGINS",
+    ""
+).split(",")
 INSTALLED_APPS = [
     'django.contrib.admin', 'django.contrib.auth', 'django.contrib.contenttypes',
     'django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles',
