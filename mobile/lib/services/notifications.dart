@@ -158,7 +158,7 @@ class NotificationService {
       if (!ids.contains(scheduled.id)) await plugin.cancel(scheduled.id);
     }
     for (final item in reminders) {
-      final due = DateTime.parse(item['due_at']).toUtc();
+      final due = DateTime.now().toUtc().add(const Duration(minutes: 1));
       if (!due.isAfter(DateTime.now().toUtc())) continue;
       await plugin.zonedSchedule(
         idFor(item['id']),
