@@ -27,14 +27,13 @@ class _ScanScreenState extends State<ScanScreen> {
   XFile? selected;
   Uint8List? preview;
 
-  String crop = 'Auto';
   final notes = TextEditingController();
-
-  bool busy = false;
-  String? error;
-  String progress = 'Analyzing your leaf…';
-
   static const crops = ['Auto', 'Tomato', 'Potato'];
+
+  String crop = 'Auto';
+  String progress = 'Checking location…';
+  String? error;
+  bool busy = false;
 
   @override
   void initState() {
@@ -60,7 +59,7 @@ class _ScanScreenState extends State<ScanScreen> {
         await setImage(lost.files!.first);
       }
     } catch (_) {
-      // Lost-image recovery is not supported on every platform.
+      // Lost-image recovery is unavailable on some platforms.
     }
   }
 
@@ -105,6 +104,11 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
+  bool locationPermissionGranted(LocationPermission permission) {
+    return permission == LocationPermission.whileInUse ||
+        permission == LocationPermission.always;
+  }
+
   Future<void> showLocationSettings({
     required String message,
     required bool appSettings,
@@ -118,15 +122,11 @@ class _ScanScreenState extends State<ScanScreen> {
         content: Text(message),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.pop(dialogContext, false);
-            },
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
-              Navigator.pop(dialogContext, true);
-            },
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Open Settings'),
           ),
         ],
@@ -135,41 +135,51 @@ class _ScanScreenState extends State<ScanScreen> {
 
     if (shouldOpen != true || !mounted) return;
 
-    final opened = appSettings
-        ? await Geolocator.openAppSettings()
-        : await Geolocator.openLocationSettings();
+    try {
+      final opened = appSettings
+          ? await Geolocator.openAppSettings()
+          : await Geolocator.openLocationSettings();
 
-    if (!opened && mounted) {
+      if (!opened && mounted) {
+        setState(() {
+          error =
+              'Open phone Settings manually. Turn on Location and '
+              'allow location permission for CropCare AI.';
+        });
+      }
+    } catch (_) {
+      if (!mounted) return;
+
       setState(() {
         error =
-            'Open your phone Settings manually and enable Location '
-            'and location permission for CropCare AI.';
+            'Open phone Settings manually. Turn on Location and '
+            'allow location permission for CropCare AI.';
       });
     }
   }
 
   Future<bool> requireLocationForAnalysis() async {
-    // First check the phone's Location/GPS switch.
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    // Location/GPS must be switched on.
+    final enabled = await Geolocator.isLocationServiceEnabled();
 
     if (!mounted) return false;
 
-    if (!serviceEnabled) {
+    if (!enabled) {
       setState(() {
-        error = 'Location must be turned on before analyzing a leaf.';
+        error = 'Turn on Location/GPS before analyzing your leaf.';
       });
 
       await showLocationSettings(
         message:
-            'Turn on Location in your phone settings. '
-            'Then return to CropCare AI and tap Analyze leaf again.',
+            'Phone Location/GPS must be ON to analyze a leaf. '
+            'Turn it on, return to this app, and tap Analyze leaf again.',
         appSettings: false,
       );
 
       return false;
     }
 
-    // Then check the app's location permission.
+    // Request permission if it has not been granted.
     var permission = await Geolocator.checkPermission();
 
     if (!mounted) return false;
@@ -180,22 +190,15 @@ class _ScanScreenState extends State<ScanScreen> {
 
     if (!mounted) return false;
 
-    final permissionGranted =
-        permission == LocationPermission.whileInUse ||
-        permission == LocationPermission.always;
-
-    if (!permissionGranted) {
+    if (!locationPermissionGranted(permission)) {
       setState(() {
-        error =
-            'Location permission is required. '
-            'Allow location while using this app to continue.';
+        error = 'Location permission is required to analyze your leaf.';
       });
 
       await showLocationSettings(
         message:
-            'CropCare AI needs your location before analyzing a leaf. '
-            'In app permissions, allow Location while using the app. '
-            'Then return and tap Analyze leaf again.',
+            'Allow Location while using CropCare AI. '
+            'Then return to the app and tap Analyze leaf again.',
         appSettings: true,
       );
 
@@ -206,7 +209,7 @@ class _ScanScreenState extends State<ScanScreen> {
       progress = 'Getting your location…';
     });
 
-    // Require a current position. Do not use an old saved location.
+    // Obtain a current position instead of using saved coordinates.
     late final Position position;
 
     try {
@@ -219,7 +222,7 @@ class _ScanScreenState extends State<ScanScreen> {
     } on TimeoutException {
       throw Exception(
         'Could not get your current location. '
-        'Move to an open area and tap Analyze leaf again. '
+        'Move to an open area and try again. '
         'Your image has not been uploaded.',
       );
     }
@@ -230,8 +233,8 @@ class _ScanScreenState extends State<ScanScreen> {
       progress = 'Saving your location…';
     });
 
-    // Your Django backend copies profile coordinates into each scan.
-    // Keep nearby-sharing preferences unchanged.
+    // The existing Django backend copies profile coordinates
+    // into the new scan. Sharing preferences are not changed.
     await widget.state.updateProfile({
       'latitude': position.latitude,
       'longitude': position.longitude,
@@ -239,29 +242,28 @@ class _ScanScreenState extends State<ScanScreen> {
 
     if (!mounted) return false;
 
-    // Recheck before starting the image upload.
+    // Check again immediately before allowing the image upload.
     final stillEnabled = await Geolocator.isLocationServiceEnabled();
-    final currentPermission = await Geolocator.checkPermission();
+    final latestPermission = await Geolocator.checkPermission();
 
     if (!mounted) return false;
 
     if (!stillEnabled) {
       setState(() {
-        error = 'Location was turned off. Turn it on and try again.';
+        error = 'Location was turned off. Enable it and try again.';
       });
 
       await showLocationSettings(
         message:
             'Location was turned off before analysis started. '
-            'Enable it, return to the app, and tap Analyze leaf again.',
+            'Turn it on, return, and tap Analyze leaf again.',
         appSettings: false,
       );
 
       return false;
     }
 
-    if (currentPermission != LocationPermission.whileInUse &&
-        currentPermission != LocationPermission.always) {
+    if (!locationPermissionGranted(latestPermission)) {
       setState(() {
         error = 'Location permission was removed. Allow it and try again.';
       });
@@ -291,7 +293,7 @@ class _ScanScreenState extends State<ScanScreen> {
     try {
       final locationReady = await requireLocationForAnalysis();
 
-      // No image upload happens unless all location checks pass.
+      // Stop here if GPS, permission, or current location is unavailable.
       if (!locationReady || !mounted) return;
 
       setState(() {
@@ -339,11 +341,11 @@ class _ScanScreenState extends State<ScanScreen> {
         });
       }
     } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        error = e.toString();
-      });
+      if (mounted) {
+        setState(() {
+          error = e.toString();
+        });
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -366,9 +368,7 @@ class _ScanScreenState extends State<ScanScreen> {
         color: primary ? forest : Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(22),
-          side: const BorderSide(
-            color: Color(0xFFBBD8B9),
-          ),
+          side: const BorderSide(color: Color(0xFFBBD8B9)),
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(22),
@@ -425,6 +425,11 @@ class _ScanScreenState extends State<ScanScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final fullName =
+        widget.state.user?['full_name']?.toString().trim() ?? '';
+    final firstName =
+        fullName.isEmpty ? 'Farmer' : fullName.split(' ').first;
+
     final body = PageBody(
       children: [
         if (widget.parent == null)
@@ -433,10 +438,7 @@ class _ScanScreenState extends State<ScanScreen> {
             margin: const EdgeInsets.only(bottom: 28),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [
-                  forest,
-                  Color(0xFF48A346),
-                ],
+                colors: [forest, Color(0xFF48A346)],
               ),
               borderRadius: BorderRadius.circular(30),
             ),
@@ -457,7 +459,7 @@ class _ScanScreenState extends State<ScanScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Welcome, ${widget.state.user?['full_name']?.toString().split(' ').first ?? 'Farmer'}!',
+                        'Welcome, $firstName!',
                         style: const TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
@@ -466,7 +468,8 @@ class _ScanScreenState extends State<ScanScreen> {
                       ),
                       const SizedBox(height: 10),
                       const Text(
-                        'Give your crops a little care.\nCheck a leaf with AI.',
+                        'Give your crops a little care.\n'
+                        'Check a leaf with AI.',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 16,
@@ -554,14 +557,14 @@ class _ScanScreenState extends State<ScanScreen> {
             children: [
               DropdownButtonFormField<String>(
                 initialValue: crop,
-                decoration: const InputDecoration(
-                  labelText: 'Crop',
-                ),
+                decoration: const InputDecoration(labelText: 'Crop'),
                 items: crops.map((item) {
                   return DropdownMenuItem<String>(
                     value: item,
                     child: Text(
-                      item == 'Auto' ? 'Detect crop automatically' : item,
+                      item == 'Auto'
+                          ? 'Detect crop automatically'
+                          : item,
                     ),
                   );
                 }).toList(),
@@ -589,31 +592,24 @@ class _ScanScreenState extends State<ScanScreen> {
               ),
               const Text(
                 'Choose a tomato or potato leaf for analysis.',
-                style: TextStyle(
-                  color: Colors.black54,
-                ),
+                style: TextStyle(color: Colors.black54),
               ),
             ],
           ),
         ),
-        const SectionCard(
-          child: Row(
+        SectionCard(
+          child: const Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.location_on,
-                color: forest,
-              ),
+              Icon(Icons.location_on, color: forest),
               SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Location is required before analysis. '
-                  'Your current location will update your profile and '
-                  'be saved with the report for local crop information. '
-                  'Nearby sharing remains your choice in Profile.',
-                  style: TextStyle(
-                    height: 1.45,
-                  ),
+                  'Location/GPS must be ON to analyze a leaf. '
+                  'Your current location updates your profile and '
+                  'is saved with your report. Analyze at your farm '
+                  'so the location represents your farm.',
+                  style: TextStyle(height: 1.45),
                 ),
               ),
             ],
@@ -626,14 +622,10 @@ class _ScanScreenState extends State<ScanScreen> {
               ? const SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                  ),
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.auto_awesome),
-          label: Text(
-            busy ? progress : 'Analyze leaf',
-          ),
+          label: Text(busy ? progress : 'Analyze leaf'),
         ),
         const SizedBox(height: 16),
         Text(
@@ -663,9 +655,7 @@ class _ScanScreenState extends State<ScanScreen> {
             appBar: AppBar(
               title: const Text('Follow-up photo'),
             ),
-            body: SafeArea(
-              child: body,
-            ),
+            body: SafeArea(child: body),
           );
   }
 }
