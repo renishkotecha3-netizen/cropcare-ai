@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../app_state.dart';
+import '../services/api.dart';
 import '../widgets/common.dart';
 import 'result_screen.dart';
 
@@ -311,6 +312,9 @@ class _ScanScreenState extends State<ScanScreen> {
 
       if (!mounted) return;
 
+      await widget.state.api.requireAnalysisLocation();
+      if (!mounted) return;
+
       if (widget.parent != null) {
         Navigator.pushReplacement(
           context,
@@ -340,6 +344,13 @@ class _ScanScreenState extends State<ScanScreen> {
           notes.clear();
         });
       }
+    } on AnalysisLocationException catch (e) {
+      if (!mounted) return;
+      setState(() => error = e.message);
+      await showLocationSettings(
+        message: '${e.message} If an upload already started, check History before trying again.',
+        appSettings: e.openAppSettings,
+      );
     } catch (e) {
       if (mounted) {
         setState(() {
