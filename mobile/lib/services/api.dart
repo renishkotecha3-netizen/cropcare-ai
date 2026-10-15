@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:geolocator/geolocator.dart';
 
 class ApiException implements Exception {
   final String message;
@@ -10,6 +11,11 @@ class ApiException implements Exception {
   ApiException(this.message, [this.status = 0]);
   @override
   String toString() => message;
+}
+
+class AnalysisLocationException extends ApiException {
+  final bool openAppSettings;
+  AnalysisLocationException(super.message, {this.openAppSettings = false});
 }
 
 class Api {
@@ -101,12 +107,31 @@ static const String baseUrl = String.fromEnvironment(
     }
   }
 
+  // Check at the upload boundary as well as in the screen. Every caller of
+  // analyze must satisfy the same location requirement.
+  Future<void> requireAnalysisLocation() async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      throw AnalysisLocationException(
+        'Turn on phone Location/GPS, then tap Analyze leaf again.',
+      );
+    }
+    final permission = await Geolocator.checkPermission();
+    if (permission != LocationPermission.whileInUse &&
+        permission != LocationPermission.always) {
+      throw AnalysisLocationException(
+        'Allow Location while using CropCare AI, then tap Analyze leaf again.',
+        openAppSettings: true,
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> analyze(
     XFile image,
     String crop,
     String notes, {
     String? parentId,
   }) async {
+    await requireAnalysisLocation();
     final client = http.Client();
     try {
       final request = http.MultipartRequest('POST', uri('scans/'))
@@ -123,10 +148,15 @@ static const String baseUrl = String.fromEnvironment(
           filename: image.name,
         ),
       );
+      // Reading a large image takes time: recheck just before sending bytes.
+      await requireAnalysisLocation();
       final response = await client
           .send(request)
           .then(http.Response.fromStream)
           .timeout(const Duration(seconds: 120));
+      // Do not show a new result if location was disabled during the request.
+      // The server may already have saved that scan in History.
+      await requireAnalysisLocation();
       return Map<String, dynamic>.from(decode(response));
     } on TimeoutException {
       throw ApiException(
