@@ -1,0 +1,33 @@
+Pepper__bell___Bacterial_spot
+Pepper__bell___healthy
+Potato_Bacteria
+Potato_Bacterial_Soft_Rot
+Potato_Early_blight
+Potato_Fungal_Late_Blight
+Potato_Fungi
+Potato_Late_blight
+Potato_Nematode
+Potato_Pest
+Potato_Phytopthora
+Potato_Viral_Leaf_Roll
+Potato_Viral_PVX
+Potato_Viral_PVY
+Potato_Virus
+Potato_healthy
+Tomato_Bacterial_spot
+Tomato_Early_blight
+Tomato_Fusarium_Wilt
+Tomato_Late_blight
+Tomato_Leaf_Mold
+Tomato_Leaf_miner
+Tomato_Magnesium Deficiency
+Tomato_Nitrogen Deficiency
+Tomato_Pottassium Deficiency
+Tomato_Powdery_mildew
+Tomato_Septoria_leaf_spot
+Tomato_Shot_Hole_Disease
+Tomato_Spider_mites_Two_spotted_spider_mite
+Tomato__Target_Spot
+Tomato__Tomato_YellowLeaf__Curl_Virus
+Tomato__Tomato_mosaic_virus
+Tomato_healthy
