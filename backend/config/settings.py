@@ -72,7 +72,12 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination', 'PAGE_SIZE': 20,
     'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
 }
-MODEL_PATH = BASE_DIR / 'crop_api' / 'ai_model' / 'crop_model_33.keras'
+MODEL_PATH = (
+    BASE_DIR
+    / 'crop_api'
+    / 'ai_model'
+    / 'crop_model_33_mobilenet.keras'
+)
 LABELS_PATH = BASE_DIR / 'crop_api' / 'ai_model' / 'labels.txt'
 FCM_ENABLED = os.getenv('FCM_ENABLED', 'false').lower() == 'true'
 SESSION_COOKIE_SECURE = not DEBUG
