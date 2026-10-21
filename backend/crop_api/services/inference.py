@@ -44,9 +44,24 @@ def get_model():
 
 
 def prepare_image(source):
+    import tensorflow as tf
+
     with Image.open(source) as raw:
-        rgb = ImageOps.exif_transpose(raw).convert('RGB').resize((224, 224), Image.Resampling.NEAREST)
-        return np.expand_dims(np.asarray(rgb, dtype=np.float32), axis=0)
+        rgb = ImageOps.exif_transpose(raw).convert("RGB")
+        pixels = np.asarray(rgb, dtype=np.float32)
+
+    resized = tf.image.resize(
+        pixels,
+        size=(224, 224),
+        method="bilinear"
+    )
+
+    # Keep pixels in the 0–255 range.
+    # MobileNet model already includes normalization.
+    return np.expand_dims(
+        resized.numpy(),
+        axis=0
+    )
 
 
 def interpret(scores, names, selected_crop='Auto'):
