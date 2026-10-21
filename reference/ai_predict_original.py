@@ -1,12 +1,14 @@
-import numpy as np
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
 import os
+import threading
+
+import numpy as np
 import tensorflow as tf
+from tensorflow.keras.models import load_model
 
 
 # =========================================================
 # BASE DIRECTORY
+# Keep this prediction file in its existing location.
 # =========================================================
 
 BASE_DIR = os.path.dirname(
@@ -15,69 +17,71 @@ BASE_DIR = os.path.dirname(
     )
 )
 
+AI_MODEL_DIR = os.path.join(
+    BASE_DIR,
+    "crop_api",
+    "ai_model"
+)
+
 
 # =========================================================
-# MODEL PATH
+# MODEL AND LABEL PATHS
+# Use both files from the new MobileNet ZIP.
 # =========================================================
 
 MODEL_PATH = os.path.join(
-    BASE_DIR,
-    "crop_api",
-    "ai_model",
-    "crop_model_33.keras"
+    AI_MODEL_DIR,
+    "crop_model_33_mobilenet.keras"
 )
 
-
-# =========================================================
-# MODEL LOADING
-# =========================================================
-
-model = None
-
-
-def get_model():
-    global model
-
-    if model is None:
-        model = load_model(MODEL_PATH)
-
-    return model
-
-
-# =========================================================
-# LABELS
-# SAME ORDER AS TRAINING
-# =========================================================
-
 LABEL_PATH = os.path.join(
-    BASE_DIR,
-    "crop_api",
-    "ai_model",
+    AI_MODEL_DIR,
     "labels.txt"
 )
 
+IMAGE_SIZE = (224, 224)
+CONFIDENCE_THRESHOLD = 60.0
 
-with open(
-    LABEL_PATH,
-    "r",
-    encoding="utf-8"
-) as f:
 
+# =========================================================
+# LOAD LABELS
+# Preserve the training order. Do not sort these labels.
+# =========================================================
+
+if not os.path.isfile(LABEL_PATH):
+    raise FileNotFoundError(
+        f"Labels file not found: {LABEL_PATH}"
+    )
+
+with open(LABEL_PATH, "r", encoding="utf-8-sig") as file:
     CLASS_NAMES = [
         line.strip()
-        for line in f.readlines()
+        for line in file
         if line.strip()
     ]
+
+if len(CLASS_NAMES) != 33:
+    raise ValueError(
+        "Expected 33 labels for this MobileNet model, "
+        f"but found {len(CLASS_NAMES)}."
+    )
+
+if len(set(CLASS_NAMES)) != len(CLASS_NAMES):
+    raise ValueError(
+        "Duplicate labels found in labels.txt."
+    )
 
 
 # =========================================================
 # TREATMENTS
+# Existing treatment mapping retained.
+# These are advisory messages, not confirmed diagnoses.
 # =========================================================
 
 TREATMENTS = {
 
     # -------------------------
-    # PEPPER
+    # PEPPER: 2 CLASSES
     # -------------------------
 
     "Pepper__bell___Bacterial_spot":
@@ -86,9 +90,8 @@ TREATMENTS = {
     "Pepper__bell___healthy":
         "Pepper plant is healthy. No treatment required.",
 
-
     # -------------------------
-    # POTATO
+    # POTATO: 14 CLASSES
     # -------------------------
 
     "Potato_Bacteria":
@@ -133,9 +136,8 @@ TREATMENTS = {
     "Potato_healthy":
         "Potato plant is healthy. No treatment required.",
 
-
     # -------------------------
-    # TOMATO
+    # TOMATO: 17 CLASSES
     # -------------------------
 
     "Tomato_Bacterial_spot":
@@ -157,13 +159,13 @@ TREATMENTS = {
         "Remove affected leaves and use a suitable pest-control treatment.",
 
     "Tomato_Magnesium Deficiency":
-        "Provide an appropriate magnesium supplement according to soil requirements.",
+        "This plant is affected by magnesium deficiency. Provide proper magnesium treatment according to soil requirements.",
 
     "Tomato_Nitrogen Deficiency":
-        "Provide an appropriate nitrogen fertilizer according to soil requirements.",
+        "This plant is affected by nitrogen deficiency. Provide proper nitrogen treatment according to soil requirements.",
 
     "Tomato_Pottassium Deficiency":
-        "Provide an appropriate potassium fertilizer according to soil requirements.",
+        "This plant is affected by potassium deficiency. Provide proper potassium treatment according to soil requirements.",
 
     "Tomato_Powdery_mildew":
         "Remove severely infected leaves and use a suitable fungicide.",
@@ -192,128 +194,187 @@ TREATMENTS = {
 
 
 # =========================================================
+# CHECK TREATMENT COVERAGE
+# This checks coverage, not the model's training label order.
+# =========================================================
+
+missing_treatments = set(CLASS_NAMES) - set(TREATMENTS)
+
+if missing_treatments:
+    raise ValueError(
+        "Treatment information missing for: "
+        + ", ".join(sorted(missing_treatments))
+    )
+
+
+# =========================================================
+# LAZY MODEL LOADING
+# One cached model per backend process.
+# =========================================================
+
+model = None
+_model_lock = threading.Lock()
+
+
+def get_model():
+    global model
+
+    if model is None:
+        with _model_lock:
+            if model is None:
+                if not os.path.isfile(MODEL_PATH):
+                    raise FileNotFoundError(
+                        f"MobileNet model not found: {MODEL_PATH}"
+                    )
+
+                loaded_model = load_model(
+                    MODEL_PATH,
+                    compile=False
+                )
+
+                expected_input = (None, 224, 224, 3)
+                expected_output = (None, len(CLASS_NAMES))
+
+                if tuple(loaded_model.input_shape) != expected_input:
+                    raise ValueError(
+                        "Unexpected model input shape: "
+                        f"{loaded_model.input_shape}. "
+                        f"Expected: {expected_input}"
+                    )
+
+                if tuple(loaded_model.output_shape) != expected_output:
+                    raise ValueError(
+                        "Unexpected model output shape: "
+                        f"{loaded_model.output_shape}. "
+                        f"Expected: {expected_output}"
+                    )
+
+                model = loaded_model
+
+                print(
+                    "Loaded model:",
+                    os.path.basename(MODEL_PATH)
+                )
+                print("Input shape:", model.input_shape)
+                print("Output shape:", model.output_shape)
+                print("Total labels:", len(CLASS_NAMES))
+
+    return model
+
+
+# =========================================================
+# PREPARE IMAGE
+#
+# Uploaded model expects:
+# - RGB
+# - 224 x 224
+# - Bilinear resize
+# - Float32 pixels in the 0–255 range
+#
+# Rescaling to [-1, 1] is ALREADY INSIDE the saved model.
+# =========================================================
+
+def prepare_image(img_path):
+    img_path = os.fspath(img_path)
+
+    if not os.path.isfile(img_path):
+        raise FileNotFoundError(
+            f"Image file not found: {img_path}"
+        )
+
+    image_bytes = tf.io.read_file(img_path)
+
+    img = tf.io.decode_image(
+        image_bytes,
+        channels=3,
+        expand_animations=False
+    )
+
+    img = tf.cast(img, tf.float32)
+
+    img = tf.image.resize(
+        img,
+        size=IMAGE_SIZE,
+        method="bilinear"
+    )
+
+    # Do NOT divide by 255 or 127.5 here.
+    # Do NOT apply MobileNet/EfficientNet preprocess_input.
+    # The model performs its own normalization.
+    return tf.expand_dims(img, axis=0)
+
+
+# =========================================================
 # PREDICT DISEASE
+# API response remains compatible with the existing app:
+# disease: string
+# confidence: float, percentage
+# treatment: string
 # =========================================================
 
 def predict_disease(img_path):
+    current_model = get_model()
+    img_batch = prepare_image(img_path)
 
-    # -------------------------
-    # Load image
-    # -------------------------
-
-    img = image.load_img(
-        img_path,
-        target_size=(224, 224)
+    # training=False disables training-time augmentation
+    # and dropout in the saved model.
+    prediction = np.asarray(
+        current_model(img_batch, training=False),
+        dtype=np.float32
     )
 
+    expected_shape = (1, len(CLASS_NAMES))
 
-    # -------------------------
-    # Convert image to array
-    # -------------------------
+    if prediction.shape != expected_shape:
+        raise ValueError(
+            f"Unexpected prediction shape: {prediction.shape}. "
+            f"Expected: {expected_shape}"
+        )
 
-    img_array = image.img_to_array(img)
+    if not np.all(np.isfinite(prediction)):
+        raise ValueError(
+            "Model returned invalid prediction values."
+        )
 
+    # The uploaded model has a softmax output layer.
+    probabilities = prediction[0]
 
-    # -------------------------
-    # Add batch dimension
-    # -------------------------
-
-    img_array = np.expand_dims(
-        img_array,
-        axis=0
-    )
-
-
-    # -------------------------
-    # EfficientNet preprocessing
-    # -------------------------
-
-    img_array = tf.keras.applications.efficientnet.preprocess_input(
-        img_array
-    )
-
-
-    # -------------------------
-    # Prediction
-    # -------------------------
-
-    prediction = get_model().predict(
-        img_array,
-        verbose=0
-    )
-
-
-    # -------------------------
-    # Highest probability
-    # -------------------------
-
-    class_index = np.argmax(prediction)
-
-    confidence = float(
-        np.max(prediction) * 100
-    )
-
+    class_index = int(np.argmax(probabilities))
+    confidence = float(probabilities[class_index] * 100.0)
 
     disease = CLASS_NAMES[class_index]
 
+    # -----------------------------------------------------
+    # LOW-CONFIDENCE RESULT
+    #
+    # Low confidence means uncertain.
+    # This threshold is not a reliable non-leaf detector.
+    # -----------------------------------------------------
 
-    # =====================================================
-    # UNKNOWN IMAGE CHECK
-    # =====================================================
-
-    if confidence < 60:
-
+    if confidence < CONFIDENCE_THRESHOLD:
         return {
             "disease": "Not Matched",
             "confidence": round(confidence, 2),
-            "treatment":
-                "This image does not appear to be a supported, Potato or Tomato leaf."
+            "treatment": (
+                "The prediction is uncertain. Retake a clear "
+                "photo of a pepper, potato or tomato leaf in "
+                "natural light. Ask a local agricultural "
+                "expert if symptoms continue."
+            )
         }
 
-
-    # =====================================================
-    # SPECIAL NUTRIENT DEFICIENCY CASES
-    # =====================================================
-
-    if disease == "Tomato_Magnesium Deficiency":
-
-        return {
-            "disease": disease,
-            "confidence": round(confidence, 2),
-            "treatment":
-                "This plant is affected by magnesium deficiency. Provide proper magnesium treatment according to soil requirements."
-        }
-
-
-    if disease == "Tomato_Nitrogen Deficiency":
-
-        return {
-            "disease": disease,
-            "confidence": round(confidence, 2),
-            "treatment":
-                "This plant is affected by nitrogen deficiency. Provide proper nitrogen treatment according to soil requirements."
-        }
-
-
-    if disease == "Tomato_Pottassium Deficiency":
-
-        return {
-            "disease": disease,
-            "confidence": round(confidence, 2),
-            "treatment":
-                "This plant is affected by potassium deficiency. Provide proper potassium treatment according to soil requirements."
-        }
-
-
-    # =====================================================
+    # -----------------------------------------------------
     # NORMAL RESULT
-    # =====================================================
+    # Nutrient deficiencies are also handled by TREATMENTS.
+    # -----------------------------------------------------
+
+    treatment = TREATMENTS.get(
+        disease,
+        "No treatment information available."
+    )
 
     return {
         "disease": disease,
         "confidence": round(confidence, 2),
-        "treatment": TREATMENTS.get(
-            disease,
-            "No treatment information available."
-        )
+        "treatment": treatment
     }
